@@ -24,6 +24,11 @@ const BASIC_TOKEN = TOSS_SECRET_KEY
   ? Buffer.from(`${TOSS_SECRET_KEY}:`, 'utf-8').toString('base64')
   : '';
 
+// Health check for Railway / load balancers (proves routing and container are up)
+app.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, service: 'payments-api' });
+});
+
 // POST /payments/confirm
 // Body: { paymentKey, orderId, amount }
 app.post('/payments/confirm', async (req, res) => {
