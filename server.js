@@ -15,7 +15,9 @@ app.use(cors({ origin: FRONTEND_ORIGIN }));
 app.use(express.json());
 
 if (!TOSS_SECRET_KEY) {
-  console.warn('[payments-api] Missing TOSS_SECRET_KEY in environment (.env).');
+  console.warn('[payments-api] Missing TOSS_SECRET_KEY in environment (.env / process.env).');
+} else {
+  console.log('[payments-api] TOSS_SECRET_KEY loaded (length):', TOSS_SECRET_KEY.length);
 }
 
 const BASIC_TOKEN = TOSS_SECRET_KEY
@@ -34,7 +36,12 @@ app.post('/payments/confirm', async (req, res) => {
     return res.status(500).json({ message: 'Server is not configured: missing TOSS_SECRET_KEY' });
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
   try {
+    console.log('[payments-api] Confirming payment', { paymentKey, orderId, amount });
+
     const tossRes = await fetch('https://api.tosspayments.com/v1/payments/confirm', {
       method: 'POST',
       headers: {
@@ -42,19 +49,29 @@ app.post('/payments/confirm', async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ paymentKey, orderId, amount }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
 
     const data = await tossRes.json();
 
     if (!tossRes.ok) {
-      console.error('Toss confirm error:', data);
+      console.error('[payments-api] Toss confirm error', tossRes.status, data);
       return res.status(tossRes.status).json(data);
     }
 
+    console.log('[payments-api] Payment confirmed', { paymentKey, orderId });
     // TODO: save order, mark as paid, etc.
     return res.json(data);
   } catch (err) {
-    console.error(err);
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[payments-api] Toss confirm timeout');
+      return res.status(504).json({ message: 'Timed out confirming payment with Toss' });
+    }
+
+    console.error('[payments-api] Internal error during confirm', err);
     return res.status(500).json({ message: 'Internal server error', error: err.message });
   }
 });
